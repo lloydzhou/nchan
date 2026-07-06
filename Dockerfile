@@ -55,7 +55,6 @@ RUN useradd -r -s /bin/false nginx && \
 # Base nginx.conf (entrypoint adjusts worker_connections; conf.d/*.conf for apps)
 RUN cat > /usr/local/nginx/conf/nginx.conf << 'NGINXCONF'
 worker_processes  auto;
-daemon off;
 error_log  /dev/stderr  warn;
 pid        /usr/local/nginx/run/nginx.pid;
 
