@@ -1,77 +1,51 @@
-# Production Nchan image: nginx + nchan module, no OpenResty dependency.
+# Production Nchan image: OpenResty + nchan, with -DNDEBUG to prevent
+# worker core dumps from spool_fetch_msg assertion failures.
 #
-# Key difference from the old lloydzhou/nchan (OpenResty-based):
-#   - Pure nginx (no Lua engine needed — zero Lua in our config)
-#   - -DNDEBUG disables C assert() to prevent worker core dumps
-#     (fixes: "assert(spool->msg_status == MSG_INVALID)" spool.c:479)
-#   - nginx binary: /usr/local/nginx/sbin/nginx
-#   - nginx conf:   /usr/local/nginx/conf/
+# Based on the SAME OpenResty version as the original lloydzhou/nchan image,
+# ensuring full compatibility with nchan_publisher_upstream_request (which
+# did NOT work correctly with plain nginx).
 #
-# Build & push:
-#   docker buildx build --platform linux/amd64 -t lloydzhou/nchan:latest . --load --push
+# Build:
+#   docker build -t lloydzhou/nchan:latest .
 
-FROM ubuntu:22.04
+FROM openresty/openresty:1.25.3.1-jammy
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV NGINX_VERSION=1.26.3
+USER root
 
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpcre3-dev \
-    libssl-dev \
-    zlib1g-dev \
-    git \
-    wget \
+    build-essential libpcre3-dev libssl-dev zlib1g-dev wget perl \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract nginx
+# Download OpenResty source (same version as the base image)
 RUN cd /tmp && \
-    wget -q http://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
-    tar -xzf nginx-${NGINX_VERSION}.tar.gz && \
-    mv nginx-${NGINX_VERSION} /usr/src/nginx && \
-    rm -f nginx-${NGINX_VERSION}.tar.gz
+    wget -q https://openresty.org/download/openresty-1.25.3.1.tar.gz && \
+    tar xzf openresty-1.25.3.1.tar.gz && \
+    rm openresty-1.25.3.1.tar.gz
 
 # Copy nchan source (includes lloyd's stub_status multi-format patch)
 COPY . /nchan
 
-WORKDIR /usr/src/nginx
+WORKDIR /tmp/openresty-1.25.3.1
 
-# Build nginx + nchan.
-# -DNDEBUG disables C assert() — prevents worker core dumps from
-# spool_fetch_msg assertion failures while keeping the logic intact.
-RUN ./configure --prefix=/usr/local/nginx \
+# Build OpenResty + nchan.
+# -DNDEBUG disables C assert() to prevent worker core dumps.
+RUN ./configure \
+    --prefix=/usr/local/openresty \
     --add-module=/nchan \
-    --with-http_ssl_module \
-    --with-http_v2_module \
-    --with-http_realip_module \
-    --with-http_stub_status_module \
-    --with-cc-opt="-DNDEBUG -Wno-error" \
-    && make -j$(nproc) && make install
+    --with-cc-opt="-DNDEBUG" \
+    -j$(nproc) && \
+    make -j$(nproc) && make install
 
-# Create nginx user + directories
-RUN useradd -r -s /bin/false nginx && \
-    mkdir -p /usr/local/nginx/logs /usr/local/nginx/run /usr/local/nginx/conf/conf.d /etc/nginx/templates
+# Cleanup build artifacts
+RUN rm -rf /tmp/openresty-1.25.3.1 /nchan && \
+    apt-get purge -y build-essential libpcre3-dev libssl-dev zlib1g-dev wget perl && \
+    apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
-# Base nginx.conf (entrypoint adjusts worker_connections; conf.d/*.conf for apps)
-RUN cat > /usr/local/nginx/conf/nginx.conf << 'NGINXCONF'
-worker_processes  auto;
-error_log  /dev/stderr  warn;
-pid        /usr/local/nginx/run/nginx.pid;
-
-events {
-    worker_connections  10240;
-}
-
-http {
-    include       mime.types;
-    default_type  application/octet-stream;
-    sendfile      on;
-    keepalive_timeout  65;
-    access_log /dev/stdout;
-    include /usr/local/nginx/conf/conf.d/*.conf;
-}
-NGINXCONF
-
+# OpenResty paths (same as original image):
+#   binary: /usr/local/openresty/bin/openresty
+#   conf:   /usr/local/openresty/nginx/conf/
+#   modules:/usr/local/openresty/nginx/modules/
 EXPOSE 80
 
-CMD ["/usr/local/nginx/sbin/nginx", "-g", "daemon off;"]
+CMD ["/usr/local/openresty/bin/openresty", "-g", "daemon off;"]
