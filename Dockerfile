@@ -45,7 +45,7 @@ RUN ./configure --prefix=/usr/local/nginx \
     --with-http_v2_module \
     --with-http_realip_module \
     --with-http_stub_status_module \
-    --with-cc-opt="-DNDEBUG" \
+    --with-cc-opt="-DNDEBUG -Wno-error" \
     && make -j$(nproc) && make install
 
 # Create nginx user + directories
