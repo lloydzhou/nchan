@@ -67,6 +67,7 @@ http {
     default_type  application/octet-stream;
     sendfile      on;
     keepalive_timeout  65;
+    access_log /dev/stdout;
     include /usr/local/nginx/conf/conf.d/*.conf;
 }
 NGINXCONF
